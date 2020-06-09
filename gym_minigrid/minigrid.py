@@ -47,6 +47,8 @@ OBJECT_TO_IDX = {
     'goal'          : 8,
     'lava'          : 9,
     'agent'         : 10,
+    'grass'         : 11,
+    'water'         : 12
 }
 
 IDX_TO_OBJECT = dict(zip(OBJECT_TO_IDX.values(), OBJECT_TO_IDX.keys()))
@@ -142,6 +144,10 @@ class WorldObj:
             v = Goal()
         elif obj_type == 'lava':
             v = Lava()
+        elif obj_type == 'grass':
+            v = Grass()
+        elif obj_type == 'water':
+            v = Water()
         else:
             assert False, "unknown object type in decode '%s'" % obj_type
 
@@ -187,6 +193,50 @@ class Lava(WorldObj):
 
     def render(self, img):
         c = (255, 128, 0)
+
+        # Background color
+        fill_coords(img, point_in_rect(0, 1, 0, 1), c)
+
+        # Little waves
+        for i in range(3):
+            ylo = 0.3 + 0.2 * i
+            yhi = 0.4 + 0.2 * i
+            fill_coords(img, point_in_line(0.1, ylo, 0.3, yhi, r=0.03), (0,0,0))
+            fill_coords(img, point_in_line(0.3, yhi, 0.5, ylo, r=0.03), (0,0,0))
+            fill_coords(img, point_in_line(0.5, ylo, 0.7, yhi, r=0.03), (0,0,0))
+            fill_coords(img, point_in_line(0.7, yhi, 0.9, ylo, r=0.03), (0,0,0))
+
+class Grass(WorldObj):
+    def __init__(self):
+        super().__init__('grass', 'green')
+
+    def can_overlap(self):
+        return True
+
+    def render(self, img):
+        c = (172, 229, 102)
+
+        # Background color
+        fill_coords(img, point_in_rect(0, 1, 0, 1), c)
+
+        # Little waves
+        for i in range(3):
+            ylo = 0.3 + 0.2 * i
+            yhi = 0.4 + 0.2 * i
+            fill_coords(img, point_in_line(0.1, ylo, 0.3, yhi, r=0.03), (0,0,0))
+            fill_coords(img, point_in_line(0.3, yhi, 0.5, ylo, r=0.03), (0,0,0))
+            fill_coords(img, point_in_line(0.5, ylo, 0.7, yhi, r=0.03), (0,0,0))
+            fill_coords(img, point_in_line(0.7, yhi, 0.9, ylo, r=0.03), (0,0,0))
+
+class Water(WorldObj):
+    def __init__(self):
+        super().__init__('water', 'blue')
+
+    def can_overlap(self):
+        return True
+
+    def render(self, img):
+        c = (31, 206, 203)
 
         # Background color
         fill_coords(img, point_in_rect(0, 1, 0, 1), c)
@@ -769,6 +819,8 @@ class MiniGridEnv(gym.Env):
             'box'           : 'B',
             'goal'          : 'G',
             'lava'          : 'V',
+            'water'         : 'w',
+            'grass'         : 'G'
         }
 
         # Short string for opened door
