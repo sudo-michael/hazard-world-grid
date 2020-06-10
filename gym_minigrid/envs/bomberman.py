@@ -107,6 +107,7 @@ class BombermanEnv(MiniGridEnv):
                 elif self.carrying.type == 'key':
                     reward += self._reward() * 3
                     self.objs_collected += 1
+                self.carrying = None
         curr_cell = self.grid.get(*self.agent_pos)
         if curr_cell != None and curr_cell.type == self.avoid_obj:
             # print(curr_cell.type)
