@@ -247,6 +247,72 @@ class FullyObsWrapper(gym.core.ObservationWrapper):
             'image': full_grid
         }
 
+class BombermanMissionWrapper(gym.core.ObservationWrapper):
+    """
+    Converts the mission of the observation field into an integer string.
+    This wrapper only works for Bomberman
+    """
+
+    def __init__(self, env):
+        super().__init__(env)
+        self.words_to_idx = {
+            'do not': 1,
+            'don\'t': 2,
+            'never': 3,
+            'cross': 4,
+            'touch': 5,
+            'move': 6,
+            'go': 7, 
+            'travel': 8, 
+            'pass': 9, 
+            'walk': 10,
+            'crossing': 11, 
+            'touching': 12, 
+            'moving': 13, 
+            'going': 14, 
+            'traveling': 15, 
+            'passing' : 16, 
+            'walking': 17,
+            'through': 18, 
+            'on': 19, 
+            'upon': 20,
+            'to': 21, 
+            'reach': 22, 
+            'move to': 23,
+            'once': 24,
+            'twice': 25,
+            'three times': 26,
+            'lava': 27,
+            'water': 28,
+            'grass': 29,
+            'more': 30,
+            'less': 31,
+            'than': 32
+        }
+        self.len = 32
+
+    # assumption: the constraint itself does not have commas
+    def encode_mission(self, mission):
+        mission = mission.split(', ')
+
+        encoding = []
+        for word in mission[0].split():
+            if word not in self.words_to_idx:
+                self.len += 1
+                self.words_to_idx[word] = self.len
+            encoding.append(str(self.words_to_idx[word]))
+
+        return ' '.join(encoding) + f', {mission[1]}, {mission[2]}'
+
+    def observation(self, obs):
+        enc_mission = self.encode_mission(obs['mission'])
+
+        return {
+            'mission': enc_mission,
+            'image': obs['image']
+        }
+
+
 class FlatObsWrapper(gym.core.ObservationWrapper):
     """
     Encode mission strings using a one-hot scheme,

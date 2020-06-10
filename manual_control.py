@@ -19,6 +19,7 @@ def reset():
         env.seed(args.seed)
 
     obs = env.reset()
+    print(obs['mission'])
 
     if hasattr(env, 'mission'):
         print('Mission: %s' % env.mission)
@@ -100,6 +101,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 env = gym.make(args.env)
+env = BombermanMissionWrapper(env)
 
 if args.agent_view:
     env = RGBImgPartialObsWrapper(env)
