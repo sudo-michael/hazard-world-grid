@@ -128,7 +128,7 @@ class BombermanEnv(MiniGridEnv):
 
         return obs, reward, done, {}
     
-    def _gen_grid(self, width, height, sparsity=1):
+    def _gen_grid(self, width, height, wall_sparsity=0.1, sparsity=0.3):
         assert width % 2 == 1 and height % 2 == 1
         # bomberman grid must be odd
         self.grid = Grid(width, height)
@@ -144,23 +144,24 @@ class BombermanEnv(MiniGridEnv):
         # Generate the surrounding walls
         self.grid.wall_rect(0, 0, width, height)
 
-        # Place the agent in the top-left corner
-        self.agent_pos = (1, 1)
-        self.agent_dir = 0
-
         # add bomberman walls
         for i in range(2, height-2, 2):
             for j in range(2, width-2, 2):
                 self.put_obj(Wall(), i, j)
+        
+        for i in range(2, height-2, 2):
+            for j in range(3, width-2, 2):
+                if random.random() < wall_sparsity:
+                    self.put_obj(Wall(), i, j)
 
-        # add 3 objects
-        self.place_obj(Ball('red'), reject_fn=reject_next_to)
-        self.place_obj(Box('yellow'), reject_fn=reject_next_to)
-        self.place_obj(Key('blue'), reject_fn=reject_next_to)
+        for i in range(3, height-2, 2):
+            for j in range(2, width-2, 2):
+                if random.random() < wall_sparsity:
+                    self.put_obj(Wall(), i, j)
 
         # add lava
-        for i in range(1, height-1, 2):
-            for j in range(2, width-2, 2):
+        for i in range(1, height-1):
+            for j in range(1, width-1):
                 if np.array_equal([i, j], self.agent_pos):
                     continue
                 elif random.random() < sparsity and self.isEmpty(i, j):
@@ -172,9 +173,28 @@ class BombermanEnv(MiniGridEnv):
                     else:
                         self.put_obj(Grass(), i, j)
         
+        self.place_agent()
+
+        # add 3 objects
+        self.place_obj(Ball('red'), reject_fn=reject_next_to)
+        self.place_obj(Box('yellow'), reject_fn=reject_next_to)
+        self.place_obj(Key('blue'), reject_fn=reject_next_to)
+        
         self.mission = make_mission(self.avoid_obj, self.hc)
 
 register(
     id='MiniGrid-Bomberman-v0',
     entry_point='gym_minigrid.envs:BombermanEnv'
+)
+
+
+class BombermanTurkEnv(BombermanEnv):
+    def _gen_grid(self):
+        # TODO: call decode() to return a new grid. Should be free.
+        # take obs and mission from a pickle file to set self.obs, self.mission
+        pass
+
+register(
+    id='MiniGrid-Bomberman-Turk-v0',
+    entry_point='gym_minigrid.envs:BombermanTurkEnv'
 )
