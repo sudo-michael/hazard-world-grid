@@ -11,6 +11,8 @@ AVOID_OBJ = {
     2: 'water'
 }
 
+OBJ_AVOID = AVOID_OBJ.keys()
+
 # from encoding in minigrid.py
 IDX_TO_AVOID = {
     'lava': 9,
@@ -128,7 +130,7 @@ class BombermanEnv(MiniGridEnv):
 
         return obs, reward, done, {}
     
-    def _gen_grid(self, width, height, wall_sparsity=0.1, sparsity=0.3):
+    def _gen_grid(self, width, height, wall_sparsity=0.1, sparsity=0.25):
         assert width % 2 == 1 and height % 2 == 1
         # bomberman grid must be odd
         self.grid = Grid(width, height)
@@ -187,14 +189,33 @@ register(
     entry_point='gym_minigrid.envs:BombermanEnv'
 )
 
+class BombermanEnvS(BombermanEnv):
+    def make_mission(self, first_obj, avoid_obj):
+        first_idx = IDX_TO_AVOID[first_obj]
+        avoid_idx = IDX_TO_AVOID[avoid_obj]
+        return f'After walking on {first_obj} do not walk on {avoid_obj}, {first_idx}, {avoid_idx}'
+        
+    def _gen_grid(self, width, height):
+        super()._gen_grid(width, height)
+        rand = random.randint(0, 2) 
+        self.first_obj = AVOID_OBJ[rand]
+        self.mission = self.make_mission(self.first_obj, self.avoid_obj)
+        self.second_obj = self.avoid_obj
+        self.avoid_obj = None
+        self.hc = 1
 
-class BombermanTurkEnv(BombermanEnv):
-    def _gen_grid(self):
-        # TODO: call decode() to return a new grid. Should be free.
-        # take obs and mission from a pickle file to set self.obs, self.mission
-        pass
+    def step(self, action):
+        obs, reward, done, info = super().step(action)
+        curr_cell = self.grid.get(*self.agent_pos)
+        if curr_cell != None:
+            if curr_cell.type == self.first_obj:
+                self.avoid_obj = self.second_obj
+            else:
+                self.avoid_obj = None
+
+        return obs, reward, done, {}
 
 register(
-    id='MiniGrid-Bomberman-Turk-v0',
-    entry_point='gym_minigrid.envs:BombermanTurkEnv'
+    id='MiniGrid-Bomberman-S-v0',
+    entry_point='gym_minigrid.envs:BombermanEnvS'
 )
