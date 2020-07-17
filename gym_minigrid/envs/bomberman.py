@@ -36,28 +36,28 @@ NUM = {
 }
 
 
-def constraint1(avoid, hc, nu, avoid_idx):
+def constraint1(avoid, nu, avoid_idx):
     ne = random.choice(NEG)
     vn = random.choice(VNOP)
-    return f'{ne} {vn} {avoid} more than {nu}, {hc}, {avoid_idx}'
+    return f'{ne} {vn} {avoid} more than {nu}, {avoid_idx}'
     
 
-def constraint2(avoid, hc, nu, avoid_idx):
+def constraint2(avoid, nu, avoid_idx):
     ne = random.choice(NEG)
     vp = random.choice(VPROP)
     pr = random.choice(PROP)
-    return f'{ne} {vp} {pr} {avoid} more than {nu}, {hc}, {avoid_idx}'
+    return f'{ne} {vp} {pr} {avoid} more than {nu}, {avoid_idx}'
 
 
-def constraint3(avoid, hc, nu, avoid_idx):
+def constraint3(avoid, nu, avoid_idx):
     vn = random.choice(VNOP)
-    return f'{vn} {avoid} less than {nu}, {hc}, {avoid_idx}'
+    return f'{vn} {avoid} less than {nu}, {avoid_idx}'
 
 
-def constraint4(avoid, hc, nu, avoid_idx):
+def constraint4(avoid, nu, avoid_idx):
     vp = random.choice(VPROP)
     pr = random.choice(PROP)
-    return f'{vp} {pr} {avoid} less than {nu}, {hc}, {avoid_idx}'
+    return f'{vp} {pr} {avoid} less than {nu}, {avoid_idx}'
 
 
 CONSTRAINTS = {
@@ -72,10 +72,10 @@ def make_mission(avoid_obj, hc):
     if hc == 1:
         ne = random.choice(NEG)
         vn = random.choice(VNOP)
-        return f'{ne} {vn} {avoid_obj}, 0, {avoid_idx}'
+        return f'{ne} {vn} {avoid_obj}, {avoid_idx}'
     opt = np.random.choice(4)
     nu = NUM[hc-1]
-    return CONSTRAINTS[opt](avoid_obj, hc-1, nu, avoid_idx)
+    return CONSTRAINTS[opt](avoid_obj, nu, avoid_idx)
     
 class BombermanEnv(MiniGridEnv):
     """
@@ -124,11 +124,17 @@ class BombermanEnv(MiniGridEnv):
         if self.step_count >= self.max_steps:
             done = True 
             # print('d3')
-        obs = self.gen_obs() 
-
-        # print(obs['image'])
+        obs = self.gen_obs()
+        obs['violations'] = self.violations
+        obs['hc'] = self.hc - 1
 
         return obs, reward, done, {}
+
+    def reset(self):
+        obs = super().reset()
+        obs['violations'] = self.violations
+        obs['hc'] = self.hc - 1
+        return obs
     
     def _gen_grid(self, width, height, wall_sparsity=0.1, sparsity=0.25):
         assert width % 2 == 1 and height % 2 == 1
