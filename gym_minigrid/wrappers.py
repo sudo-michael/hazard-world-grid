@@ -108,7 +108,7 @@ class ImgObsWrapper(gym.core.ObservationWrapper):
         self.observation_space = env.observation_space.spaces['image']
 
     def observation(self, obs):
-        return obs['image']
+        return obs['image'].flatten()
 
 class OneHotPartialObsWrapper(gym.core.ObservationWrapper):
     """

@@ -95,6 +95,8 @@ class BombermanEnv(MiniGridEnv):
         return self.grid.get(i, j) == None
 
     def step(self, action):
+        if not isinstance(action, int):
+            action = np.argmax(action)
         obs, reward, _, info = super().step(action)
         done = False
 
