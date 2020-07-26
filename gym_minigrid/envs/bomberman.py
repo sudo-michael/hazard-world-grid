@@ -3,6 +3,9 @@ from gym_minigrid.register import register
 from gym_minigrid.roomgrid import reject_next_to
 
 import itertools as itt, random
+import numpy as np
+
+from gym import spaces
 
 # TODO: reverse mapping is potentially confusing here. Redo?
 AVOID_OBJ = {
@@ -83,13 +86,14 @@ class BombermanEnv(MiniGridEnv):
     up a series of rewards.
     """
 
-    def __init__(self, hc=3, size=13, seed=None):
+    def __init__(self, size=13, seed=None):
         super().__init__(
             grid_size=size,
             max_steps=4*size*size,
             see_through_walls=True,
             seed=None,
         )
+        self.action_space = spaces.Discrete(4)
 
     def isEmpty(self, i, j):
         return self.grid.get(i, j) == None
@@ -215,13 +219,10 @@ class BombermanEnvS(BombermanEnv):
     def step(self, action):
         obs, reward, done, info = super().step(action)
         curr_cell = self.grid.get(*self.agent_pos)
-        if curr_cell != None:
+        if self.avoid_obj == None and curr_cell != None:
             if curr_cell.type == self.first_obj:
                 self.avoid_obj = self.second_obj
-            else:
-                self.avoid_obj = None
-
-        return obs, reward, done, {}
+        return obs, reward, done, info 
 
 register(
     id='MiniGrid-Bomberman-S-v0',
