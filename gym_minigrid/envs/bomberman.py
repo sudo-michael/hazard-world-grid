@@ -228,3 +228,18 @@ register(
     id='MiniGrid-Bomberman-S-v0',
     entry_point='gym_minigrid.envs:BombermanEnvS'
 )
+
+class BombermanNoStop(BombermanEnv):
+    def step(self, action):
+        obs, reward, _, info = super().step(action)
+        done = False
+        if self.objs_collected == 3:
+            done = True
+        if self.step_count >= self.max_steps:
+            done = True 
+        return obs, reward, done, info 
+
+register(
+    id='MiniGrid-Bomberman-v1',
+    entry_point='gym_minigrid.envs:BombermanNoStop'
+)

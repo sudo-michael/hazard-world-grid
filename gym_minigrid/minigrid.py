@@ -707,7 +707,7 @@ class MiniGridEnv(gym.Env):
         grid_size=None,
         width=None,
         height=None,
-        max_steps=100,
+        max_steps=500,
         see_through_walls=False,
         seed=1337,
         agent_view_size=7
