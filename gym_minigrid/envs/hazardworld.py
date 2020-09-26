@@ -86,16 +86,15 @@ def make_sequential_constraint(first_obj, avoid_obj, isBefore):
     return f'After walking on {first_obj} do not walk on {avoid_obj}'
 
 ################################################################################
-# Budgetary Constraints
+# HazardWorld base
 ################################################################################
-    
-class HazardWorld(MiniGridEnv):
+
+class HazardWorldBase(MiniGridEnv):
     """
     Pick up 3 objects while avoiding many potential hazards.
     Potential hazards are specified by the constraint stored in the mission 
     field. The base HazardWorld environment contains budgetary constraints.
     """
-
     def __init__(self, size=13, seed=None):
         super().__init__(
             grid_size=size,
@@ -161,6 +160,16 @@ class HazardWorld(MiniGridEnv):
         # Generate the surrounding walls
         self.grid.wall_rect(0, 0, width, height)
 
+        # The child class must place reward entities
+        
+################################################################################
+# Budgetary Constraints
+################################################################################
+    
+class HazardWorldBudgetary(HazardWorldBase):
+    
+    def _gen_grid(self, width, height, sparsity=0.25):
+        super()._gen_grid(width, height, sparsity)
         # add obstacles
         for i in range(1, height-1):
             for j in range(1, width-1):
@@ -174,29 +183,29 @@ class HazardWorld(MiniGridEnv):
                         self.put_obj(Water(), i, j)
                     else:
                         self.put_obj(Grass(), i, j)
-        
+
         self.place_agent()
 
         # add 3 reward entities
         self.place_obj(Ball('red'), reject_fn=reject_next_to)
         self.place_obj(Box('yellow'), reject_fn=reject_next_to)
         self.place_obj(Key('blue'), reject_fn=reject_next_to)
-        
+
         self.mission = make_budgetary_constraint(self.avoid_obj, self.hc)
 
 register(
-    id='MiniGrid-HazardWorld-v0',
-    entry_point='gym_minigrid.envs:HazardWorld'
+    id='MiniGrid-HazardWorld-B-v0',
+    entry_point='gym_minigrid.envs:HazardWorldBudgetary'
 )
 
 ################################################################################
 # Sequential Constraints
 ################################################################################
 
-class HazardWorldSequential(HazardWorld):
+class HazardWorldSequential(HazardWorldBase):
         
-    def _gen_grid(self, width, height):
-        super()._gen_grid(width, height)
+    def _gen_grid(self, width, height, sparsity=0.25):
+        super()._gen_grid(width, height, sparsity)
         self.isBefore = random.choice([True, False])
         rand = random.randint(0, 2) 
         
@@ -212,6 +221,26 @@ class HazardWorldSequential(HazardWorld):
             self.second_obj = self.avoid_obj
             self.avoid_obj = None
             self.hc = 42 # arbitrary
+        
+        for i in range(1, height-1):
+            for j in range(1, width-1):
+                if np.array_equal([i, j], self.agent_pos):
+                    continue
+                elif random.random() < sparsity and self.isEmpty(i, j):
+                    val = random.random()
+                    if val < 0.33:
+                        self.put_obj(Lava(), i, j)
+                    elif val < 0.66:
+                        self.put_obj(Water(), i, j)
+                    else:
+                        self.put_obj(Grass(), i, j)
+
+        self.place_agent()
+
+        # add 3 reward entities
+        self.place_obj(Ball('red'), reject_fn=reject_next_to)
+        self.place_obj(Box('yellow'), reject_fn=reject_next_to)
+        self.place_obj(Key('blue'), reject_fn=reject_next_to)
     
     def step(self, action):
         obs, reward, done, info = super().step(action)
