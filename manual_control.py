@@ -101,7 +101,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 env = gym.make(args.env)
-env = BombermanMissionWrapper(env)
+# env = HazardWorldMissionWrapper(env)
 
 if args.agent_view:
     env = RGBImgPartialObsWrapper(env)

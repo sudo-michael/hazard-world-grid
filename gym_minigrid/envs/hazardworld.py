@@ -7,16 +7,18 @@ import numpy as np
 
 from gym import spaces
 
-# TODO: reverse mapping is potentially confusing here. Redo?
+################################################################################
+# Synthetic instruction generation
+################################################################################
+
 AVOID_OBJ = {
     0: 'lava',
     1: 'grass',
     2: 'water'
 }
 
-OBJ_AVOID = AVOID_OBJ.keys()
+AVOID_OBJ_VALS = list(AVOID_OBJ.values())
 
-# from encoding in minigrid.py
 IDX_TO_AVOID = {
     'lava': 9,
     'grass': 11,
@@ -33,35 +35,33 @@ VGOAL = ['go to', 'reach', 'move to']
 NUM = {
     1: 'once',
     2: 'twice',
-    3: 'three times'
-    # 4: 'four times',
-    # 5: 'five times'
+    3: 'three times',
+    4: 'four times',
+    5: 'five times'
 }
-
 
 def constraint1(avoid, nu, avoid_idx):
     ne = random.choice(NEG)
     vn = random.choice(VNOP)
-    return f'{ne} {vn} {avoid} more than {nu}, {avoid_idx}'
+    return f'{ne} {vn} {avoid} more than {nu}'
     
 
 def constraint2(avoid, nu, avoid_idx):
     ne = random.choice(NEG)
     vp = random.choice(VPROP)
     pr = random.choice(PROP)
-    return f'{ne} {vp} {pr} {avoid} more than {nu}, {avoid_idx}'
-
+    return f'{ne} {vp} {pr} {avoid} more than {nu}'
+    
 
 def constraint3(avoid, nu, avoid_idx):
     vn = random.choice(VNOP)
-    return f'{vn} {avoid} less than {nu}, {avoid_idx}'
+    return f'{vn} {avoid} less than {nu}'
 
 
 def constraint4(avoid, nu, avoid_idx):
     vp = random.choice(VPROP)
     pr = random.choice(PROP)
-    return f'{vp} {pr} {avoid} less than {nu}, {avoid_idx}'
-
+    return f'{vp} {pr} {avoid} less than {nu}'
 
 CONSTRAINTS = {
     0: constraint1,
@@ -70,20 +70,30 @@ CONSTRAINTS = {
     3: constraint4
 }
 
-def make_mission(avoid_obj, hc):
+def make_budgetary_constraint(avoid_obj, hc):
     avoid_idx = IDX_TO_AVOID[avoid_obj]
     if hc == 1:
         ne = random.choice(NEG)
         vn = random.choice(VNOP)
-        return f'{ne} {vn} {avoid_obj}, {avoid_idx}'
+        return f'{ne} {vn} {avoid_obj}'
     opt = np.random.choice(4)
     nu = NUM[hc-1]
     return CONSTRAINTS[opt](avoid_obj, nu, avoid_idx)
+
+def make_sequential_constraint(first_obj, avoid_obj, isBefore):
+    if isBefore:
+        return f'Before walking on {first_obj} do not walk on {avoid_obj}'
+    return f'After walking on {first_obj} do not walk on {avoid_obj}'
+
+################################################################################
+# Budgetary Constraints
+################################################################################
     
-class BombermanEnv(MiniGridEnv):
+class HazardWorld(MiniGridEnv):
     """
-    Environment inspired by Bomberman. Exploring 'ruins' while picking
-    up a series of rewards.
+    Pick up 3 objects while avoiding many potential hazards.
+    Potential hazards are specified by the constraint stored in the mission 
+    field. The base HazardWorld environment contains budgetary constraints.
     """
 
     def __init__(self, size=13, seed=None):
@@ -118,18 +128,12 @@ class BombermanEnv(MiniGridEnv):
                 self.carrying = None
         curr_cell = self.grid.get(*self.agent_pos)
         if curr_cell != None and curr_cell.type == self.avoid_obj:
-            # print(curr_cell.type)
             self.violations += 1
 
         if self.objs_collected == 3:
             done = True 
-            # print('d1')
-        if self.violations == self.hc:
-            done = True
-            # print('d2')
         if self.step_count >= self.max_steps:
             done = True 
-            # print('d3')
         obs = self.gen_obs()
         obs['violations'] = self.violations
         obs['hc'] = self.hc - 1
@@ -142,14 +146,13 @@ class BombermanEnv(MiniGridEnv):
         obs['hc'] = self.hc - 1
         return obs
     
-    def _gen_grid(self, width, height, wall_sparsity=0.1, sparsity=0.25):
+    def _gen_grid(self, width, height, sparsity=0.25):
         assert width % 2 == 1 and height % 2 == 1
-        # bomberman grid must be odd
+        # HazardWorld grid size must be odd
         self.grid = Grid(width, height)
 
-        # pick a constrained object
-        rand = random.randint(0, 2) 
-        self.avoid_obj = AVOID_OBJ[rand]
+        # pick a cost entity
+        self.avoid_obj = random.choice(AVOID_OBJ_VALS)
 
         self.objs_collected = 0
         self.hc = random.randint(1, 4)
@@ -158,22 +161,7 @@ class BombermanEnv(MiniGridEnv):
         # Generate the surrounding walls
         self.grid.wall_rect(0, 0, width, height)
 
-        # add bomberman walls
-        for i in range(2, height-2, 2):
-            for j in range(2, width-2, 2):
-                self.put_obj(Wall(), i, j)
-        
-        for i in range(2, height-2, 2):
-            for j in range(3, width-2, 2):
-                if random.random() < wall_sparsity:
-                    self.put_obj(Wall(), i, j)
-
-        for i in range(3, height-2, 2):
-            for j in range(2, width-2, 2):
-                if random.random() < wall_sparsity:
-                    self.put_obj(Wall(), i, j)
-
-        # add lava
+        # add obstacles
         for i in range(1, height-1):
             for j in range(1, width-1):
                 if np.array_equal([i, j], self.agent_pos):
@@ -189,57 +177,63 @@ class BombermanEnv(MiniGridEnv):
         
         self.place_agent()
 
-        # add 3 objects
+        # add 3 reward entities
         self.place_obj(Ball('red'), reject_fn=reject_next_to)
         self.place_obj(Box('yellow'), reject_fn=reject_next_to)
         self.place_obj(Key('blue'), reject_fn=reject_next_to)
         
-        self.mission = make_mission(self.avoid_obj, self.hc)
+        self.mission = make_budgetary_constraint(self.avoid_obj, self.hc)
 
 register(
-    id='MiniGrid-Bomberman-v0',
-    entry_point='gym_minigrid.envs:BombermanEnv'
+    id='MiniGrid-HazardWorld-v0',
+    entry_point='gym_minigrid.envs:HazardWorld'
 )
 
-class BombermanEnvS(BombermanEnv):
-    def make_mission(self, first_obj, avoid_obj):
-        first_idx = IDX_TO_AVOID[first_obj]
-        avoid_idx = IDX_TO_AVOID[avoid_obj]
-        return f'After walking on {first_obj} do not walk on {avoid_obj}, {first_idx}, {avoid_idx}'
+################################################################################
+# Sequential Constraints
+################################################################################
+
+class HazardWorldSequential(HazardWorld):
         
     def _gen_grid(self, width, height):
         super()._gen_grid(width, height)
+        self.isBefore = random.choice([True, False])
         rand = random.randint(0, 2) 
-        self.first_obj = AVOID_OBJ[rand]
-        self.mission = self.make_mission(self.first_obj, self.avoid_obj)
-        self.second_obj = self.avoid_obj
-        self.avoid_obj = None
-        self.hc = 1
-
+        
+        if self.isBefore:
+            # first_obj here deactivates avoid_obj
+            self.first_obj, self.avoid_obj = random.sample(AVOID_OBJ_VALS, 2)
+            self.mission = make_sequential_constraint(self.first_obj, self.avoid_obj, self.isBefore)
+            self.hc = 1
+        else:
+            # avoid object is chosen for free in super class
+            self.first_obj = random.choice(AVOID_OBJ_VALS)
+            self.mission = make_sequential_constraint(self.first_obj, self.avoid_obj, self.isBefore)
+            self.second_obj = self.avoid_obj
+            self.avoid_obj = None
+            self.hc = 42 # arbitrary
+    
     def step(self, action):
         obs, reward, done, info = super().step(action)
         curr_cell = self.grid.get(*self.agent_pos)
-        if self.avoid_obj == None and curr_cell != None:
-            if curr_cell.type == self.first_obj:
-                self.avoid_obj = self.second_obj
+
+        # handle conditions
+        if curr_cell != None:
+            if self.isBefore and curr_cell == first_obj:
+                self.avoid_obj == None
+            if not self.isBefore and self.avoid_obj == None:
+                # ignore constraint violations if after condition has not been met
+                self.violations = 0
+                if curr_cell.type == self.first_obj:
+                    self.avoid_obj = self.second_obj
+                    self.hc = 1
         return obs, reward, done, info 
 
 register(
-    id='MiniGrid-Bomberman-S-v0',
-    entry_point='gym_minigrid.envs:BombermanEnvS'
+    id='MiniGrid-HazardWorld-S-v0',
+    entry_point='gym_minigrid.envs:HazardWorldSequential'
 )
 
-class BombermanNoStop(BombermanEnv):
-    def step(self, action):
-        obs, reward, _, info = super().step(action)
-        done = False
-        if self.objs_collected == 3:
-            done = True
-        if self.step_count >= self.max_steps:
-            done = True 
-        return obs, reward, done, info 
-
-register(
-    id='MiniGrid-Bomberman-v1',
-    entry_point='gym_minigrid.envs:BombermanNoStop'
-)
+################################################################################
+# Relational Constraints
+################################################################################

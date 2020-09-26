@@ -247,10 +247,10 @@ class FullyObsWrapper(gym.core.ObservationWrapper):
             'image': full_grid
         }
 
-class BombermanMissionWrapper(gym.core.ObservationWrapper):
+class HazardWorldMissionWrapper(gym.core.ObservationWrapper):
     """
     Converts the mission of the observation field into an integer string.
-    This wrapper only works for Bomberman
+    This wrapper only works for HazardWorld
     """
 
     def __init__(self, env):
