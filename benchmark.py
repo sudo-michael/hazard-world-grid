@@ -11,7 +11,7 @@ parser.add_argument(
     "--env-name",
     dest="env_name",
     help="gym environment to load",
-    default='MiniGrid-LavaGapS7-v0'
+    default='MiniGrid-HazardWorld-B-v0'
 )
 parser.add_argument("--num_resets", default=200)
 parser.add_argument("--num_frames", default=5000)

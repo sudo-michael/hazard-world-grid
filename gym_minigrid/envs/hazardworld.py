@@ -8,6 +8,34 @@ import numpy as np
 from gym import spaces
 
 ################################################################################
+# Heleper functions
+################################################################################
+
+def reject_dist_3(env, pos):
+    """
+    Function to filter out object positions that are 3 away from
+    the agent's starting positon
+    """
+
+    sx, sy = env.agent_pos
+    x, y = pos
+    d = abs(sx - x) + abs(sy - y)
+    return d <= 3
+
+def too_close(pos, entities, min_dist):
+    """
+    Function to filter out object positions that are right next to
+    the agent's starting point
+    """
+    for entity_pos in entities:
+        sx, sy = entity_pos
+        x, y = pos
+        d = abs(sx - x) + abs(sy - y)
+        if d <= min_dist:
+            return True
+    return False
+
+################################################################################
 # Synthetic instruction generation
 ################################################################################
 
@@ -44,14 +72,14 @@ def constraint1(avoid, nu, avoid_idx):
     ne = random.choice(NEG)
     vn = random.choice(VNOP)
     return f'{ne} {vn} {avoid} more than {nu}'
-    
+
 
 def constraint2(avoid, nu, avoid_idx):
     ne = random.choice(NEG)
     vp = random.choice(VPROP)
     pr = random.choice(PROP)
     return f'{ne} {vp} {pr} {avoid} more than {nu}'
-    
+
 
 def constraint3(avoid, nu, avoid_idx):
     vn = random.choice(VNOP)
@@ -85,6 +113,9 @@ def make_sequential_constraint(first_obj, avoid_obj, isBefore):
         return f'Before walking on {first_obj} do not walk on {avoid_obj}'
     return f'After walking on {first_obj} do not walk on {avoid_obj}'
 
+def make_relational_constraint(avoid_obj, dist):
+    return f'Stay {dist} steps away from {avoid_obj}'
+
 ################################################################################
 # HazardWorld base
 ################################################################################
@@ -92,7 +123,7 @@ def make_sequential_constraint(first_obj, avoid_obj, isBefore):
 class HazardWorldBase(MiniGridEnv):
     """
     Pick up 3 objects while avoiding many potential hazards.
-    Potential hazards are specified by the constraint stored in the mission 
+    Potential hazards are specified by the constraint stored in the mission
     field. The base HazardWorld environment contains budgetary constraints.
     """
     def __init__(self, size=13, seed=None):
@@ -117,10 +148,10 @@ class HazardWorldBase(MiniGridEnv):
             if self.carrying != None:
                 if self.carrying.type == 'ball':
                     reward += self._reward()
-                    self.objs_collected += 1 
+                    self.objs_collected += 1
                 elif self.carrying.type == 'box':
                     reward += self._reward() * 2
-                    self.objs_collected += 1 
+                    self.objs_collected += 1
                 elif self.carrying.type == 'key':
                     reward += self._reward() * 3
                     self.objs_collected += 1
@@ -130,9 +161,9 @@ class HazardWorldBase(MiniGridEnv):
             self.violations += 1
 
         if self.objs_collected == 3:
-            done = True 
+            done = True
         if self.step_count >= self.max_steps:
-            done = True 
+            done = True
         obs = self.gen_obs()
         obs['violations'] = self.violations
         obs['hc'] = self.hc - 1
@@ -144,7 +175,7 @@ class HazardWorldBase(MiniGridEnv):
         obs['violations'] = self.violations
         obs['hc'] = self.hc - 1
         return obs
-    
+
     def _gen_grid(self, width, height, sparsity=0.25):
         assert width % 2 == 1 and height % 2 == 1
         # HazardWorld grid size must be odd
@@ -154,28 +185,26 @@ class HazardWorldBase(MiniGridEnv):
         self.avoid_obj = random.choice(AVOID_OBJ_VALS)
 
         self.objs_collected = 0
-        self.hc = random.randint(1, 4)
+        self.hc = random.randint(1, 6)
         self.violations = 0
 
         # Generate the surrounding walls
         self.grid.wall_rect(0, 0, width, height)
 
         # The child class must place reward entities
-        
+
 ################################################################################
 # Budgetary Constraints
 ################################################################################
-    
+
 class HazardWorldBudgetary(HazardWorldBase):
-    
-    def _gen_grid(self, width, height, sparsity=0.25):
+
+    def _gen_grid(self, width, height, sparsity=0.5):
         super()._gen_grid(width, height, sparsity)
         # add obstacles
         for i in range(1, height-1):
             for j in range(1, width-1):
-                if np.array_equal([i, j], self.agent_pos):
-                    continue
-                elif random.random() < sparsity and self.isEmpty(i, j):
+                if random.random() < sparsity and self.isEmpty(i, j):
                     val = random.random()
                     if val < 0.33:
                         self.put_obj(Lava(), i, j)
@@ -203,12 +232,12 @@ register(
 ################################################################################
 
 class HazardWorldSequential(HazardWorldBase):
-        
-    def _gen_grid(self, width, height, sparsity=0.25):
+
+    def _gen_grid(self, width, height, sparsity=0.5):
         super()._gen_grid(width, height, sparsity)
         self.isBefore = random.choice([True, False])
-        rand = random.randint(0, 2) 
-        
+        rand = random.randint(0, 2)
+
         if self.isBefore:
             # first_obj here deactivates avoid_obj
             self.first_obj, self.avoid_obj = random.sample(AVOID_OBJ_VALS, 2)
@@ -221,12 +250,10 @@ class HazardWorldSequential(HazardWorldBase):
             self.second_obj = self.avoid_obj
             self.avoid_obj = None
             self.hc = 42 # arbitrary
-        
+
         for i in range(1, height-1):
             for j in range(1, width-1):
-                if np.array_equal([i, j], self.agent_pos):
-                    continue
-                elif random.random() < sparsity and self.isEmpty(i, j):
+                if random.random() < sparsity and self.isEmpty(i, j):
                     val = random.random()
                     if val < 0.33:
                         self.put_obj(Lava(), i, j)
@@ -241,7 +268,7 @@ class HazardWorldSequential(HazardWorldBase):
         self.place_obj(Ball('red'), reject_fn=reject_next_to)
         self.place_obj(Box('yellow'), reject_fn=reject_next_to)
         self.place_obj(Key('blue'), reject_fn=reject_next_to)
-    
+
     def step(self, action):
         obs, reward, done, info = super().step(action)
         curr_cell = self.grid.get(*self.agent_pos)
@@ -256,7 +283,7 @@ class HazardWorldSequential(HazardWorldBase):
                 if curr_cell.type == self.first_obj:
                     self.avoid_obj = self.second_obj
                     self.hc = 1
-        return obs, reward, done, info 
+        return obs, reward, done, info
 
 register(
     id='MiniGrid-HazardWorld-S-v0',
@@ -266,3 +293,53 @@ register(
 ################################################################################
 # Relational Constraints
 ################################################################################
+
+class HazardWorldRelational(HazardWorldBase):
+    def safe_put(self, obj, i, j, entities):
+        """
+        Put an object at a specific position in the grid
+        """
+        # Don't place the object on top of another object
+        if self.grid.get(i, j) != None:
+            return
+        # Don't place the object where the agent is
+        if np.array_equal([i, j], self.agent_pos):
+            return
+        # Check if there is a filtering criterion
+        if too_close((i, j), entities, self.min_dist):
+            return
+
+        self.grid.set(i, j, obj)
+        obj.init_pos = (i, j)
+        obj.cur_pos = (i, j)
+
+    def _gen_grid(self, width, height, sparsity=0.5):
+        super()._gen_grid(width, height, sparsity)
+
+        self.min_dist = random.randint(0,3)
+        self.hc = 1
+
+        entities = []
+        entities.append(self.place_agent())
+        entities.append(self.place_obj(Ball('red'), reject_fn=reject_dist_3))
+        entities.append(self.place_obj(Box('yellow'), reject_fn=reject_dist_3))
+        entities.append(self.place_obj(Key('blue'), reject_fn=reject_dist_3))
+
+        # add obstacles
+        for i in range(1, height-1):
+            for j in range(1, width-1):
+                if random.random() < sparsity and self.isEmpty(i, j):
+                    val = random.random()
+                    if val < 0.33:
+                        self.safe_put(Lava(), i, j, entities)
+                    elif val < 0.66:
+                        self.safe_put(Water(), i, j, entities)
+                    else:
+                        self.safe_put(Grass(), i, j, entities)
+
+        self.mission = make_relational_constraint(self.avoid_obj, self.min_dist)
+
+register(
+    id='MiniGrid-HazardWorld-R-v0',
+    entry_point='gym_minigrid.envs:HazardWorldRelational'
+)

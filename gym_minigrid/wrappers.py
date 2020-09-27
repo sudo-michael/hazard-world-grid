@@ -262,22 +262,22 @@ class HazardWorldMissionWrapper(gym.core.ObservationWrapper):
             'cross': 4,
             'touch': 5,
             'move': 6,
-            'go': 7, 
-            'travel': 8, 
-            'pass': 9, 
+            'go': 7,
+            'travel': 8,
+            'pass': 9,
             'walk': 10,
-            'crossing': 11, 
-            'touching': 12, 
-            'moving': 13, 
-            'going': 14, 
-            'traveling': 15, 
-            'passing' : 16, 
+            'crossing': 11,
+            'touching': 12,
+            'moving': 13,
+            'going': 14,
+            'traveling': 15,
+            'passing' : 16,
             'walking': 17,
-            'through': 18, 
-            'on': 19, 
+            'through': 18,
+            'on': 19,
             'upon': 20,
-            'to': 21, 
-            'reach': 22, 
+            'to': 21,
+            'reach': 22,
             'move to': 23,
             'once': 24,
             'twice': 25,
@@ -291,10 +291,7 @@ class HazardWorldMissionWrapper(gym.core.ObservationWrapper):
         }
         self.len = 32
 
-    # assumption: the constraint itself does not have commas
     def encode_mission(self, mission):
-        mission = mission.split(', ')
-
         encoding = []
         for word in mission[0].split():
             if word not in self.words_to_idx:
@@ -302,7 +299,7 @@ class HazardWorldMissionWrapper(gym.core.ObservationWrapper):
                 self.words_to_idx[word] = self.len
             encoding.append(str(self.words_to_idx[word]))
 
-        return ' '.join(encoding) + f', {mission[1]}, {mission[2]}'
+        return ' '.join(encoding)
 
     def observation(self, obs):
         enc_mission = self.encode_mission(obs['mission'])
