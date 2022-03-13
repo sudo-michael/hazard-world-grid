@@ -11,7 +11,7 @@ parser.add_argument(
     "--env-name",
     dest="env_name",
     help="gym environment to load",
-    default='MiniGrid-HazardWorld-B-v0'
+    default="MiniGrid-HazardWorld-B-v0",
 )
 parser.add_argument("--num_resets", default=200)
 parser.add_argument("--num_frames", default=5000)
@@ -30,7 +30,7 @@ reset_time = (1000 * dt) / args.num_resets
 # Benchmark rendering
 t0 = time.time()
 for i in range(args.num_frames):
-    env.render('rgb_array')
+    env.render("rgb_array")
 t1 = time.time()
 dt = t1 - t0
 frames_per_sec = args.num_frames / dt
@@ -40,6 +40,7 @@ env = gym.make(args.env_name)
 env = RGBImgPartialObsWrapper(env)
 env = ImgObsWrapper(env)
 
+env.reset()
 # Benchmark rendering
 t0 = time.time()
 for i in range(args.num_frames):
@@ -48,6 +49,6 @@ t1 = time.time()
 dt = t1 - t0
 agent_view_fps = args.num_frames / dt
 
-print('Env reset time: {:.1f} ms'.format(reset_time))
-print('Rendering FPS : {:.0f}'.format(frames_per_sec))
-print('Agent view FPS: {:.0f}'.format(agent_view_fps))
+print("Env reset time: {:.1f} ms".format(reset_time))
+print("Rendering FPS : {:.0f}".format(frames_per_sec))
+print("Agent view FPS: {:.0f}".format(agent_view_fps))
