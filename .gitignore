@@ -11,4 +11,4 @@ dist/*
 # vscode 
 .vscode/
 
-data
+*csv
