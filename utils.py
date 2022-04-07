@@ -71,7 +71,7 @@ def encode_mission(mission):
     encoding = np.array(encoding)
     vec = np.zeros((TEXT_LENGTH,))
     vec[: len(encoding)] = encoding
-    return vec
+    return vec.astype(np.uint8)
 
 
 def create_constraint_mask(obs, env):

@@ -24,7 +24,7 @@ parser.add_argument("--num_resets", default=200)
 parser.add_argument("--num_frames", default=5000)
 args = parser.parse_args()
 
-env = gym.make(args.env_name)
+env = gym.make(args.env_name, size=9)
 
 obs = env.reset()
 mask_label = torch.zeros((7, 7))
