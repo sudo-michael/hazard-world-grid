@@ -38,7 +38,7 @@ def parse_args():
         help="if toggled, cuda will be enabled by default")
     parser.add_argument("--track", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="if toggled, this experiment will be tracked with Weights and Biases")
-    parser.add_argument("--wandb-project-name", type=str, default="cleanRL",
+    parser.add_argument("--wandb-project-name", type=str, default="983",
         help="the wandb's project name")
     parser.add_argument("--wandb-entity", type=str, default=None,
         help="the entity (team) of wandb's project")
@@ -48,13 +48,13 @@ def parse_args():
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="MiniGrid-HazardWorld-B-v0",
         help="the id of the environment")
-    parser.add_argument("--total-timesteps", type=int, default=50_000,
+    parser.add_argument("--total-timesteps", type=int, default=100_000,
         help="total timesteps of the experiments")
     parser.add_argument("--learning-rate", type=float, default=2.5e-4,
         help="the learning rate of the optimizer")
-    parser.add_argument("--num-envs", type=int, default=2,
+    parser.add_argument("--num-envs", type=int, default=8,
         help="the number of parallel game environments")
-    parser.add_argument("--num-steps", type=int, default=128,
+    parser.add_argument("--num-steps", type=int, default=2000,
         help="the number of steps to run in each environment per policy rollout")
     parser.add_argument("--anneal-lr", type=lambda x: bool(strtobool(x)), default=True, nargs="?", const=True,
         help="Toggle learning rate annealing for policy and value networks")
@@ -99,7 +99,7 @@ class HazardWorldMissionWrapper(gym.core.ObservationWrapper):
         super().__init__(env)
 
     def observation(self, obs):
-        print(f"{obs['mission']=}")
+        # print(f"{obs['mission']=}")
         enc_mission = encode_mission(obs["mission"])
         obs["mission"] = enc_mission
         return obs
@@ -142,7 +142,7 @@ class RecordEpisodeStatisticsV(gym.Wrapper):
         self.episode_count = 0
         self.episode_returns = None
         self.episode_lengths = None
-        self.violation_returns = None
+        # self.violation_returns = None
         self.return_queue = deque(maxlen=deque_size)
         self.length_queue = deque(maxlen=deque_size)
         self.violations_queue = deque(maxlen=deque_size)
@@ -152,14 +152,14 @@ class RecordEpisodeStatisticsV(gym.Wrapper):
         observations = super().reset(**kwargs)
         self.episode_returns = np.zeros(self.num_envs, dtype=np.float32)
         self.episode_lengths = np.zeros(self.num_envs, dtype=np.int32)
-        self.violation_returns = np.zeros(self.num_envs, dtype=np.float32)
+        # self.violation_returns = np.zeros(self.num_envs, dtype=np.float32)
         return observations
 
     def step(self, action):
         observations, rewards, dones, infos = super().step(action)
         self.episode_returns += rewards
         self.episode_lengths += 1
-        self.violations_returns += observations["violations"] - observations["hc"]
+        # self.violation_returns += observations["violations"] - observations["hc"]
         if not self.is_vector_env:
             infos = [infos]
             dones = [dones]
@@ -170,7 +170,8 @@ class RecordEpisodeStatisticsV(gym.Wrapper):
                 infos[i] = infos[i].copy()
                 episode_return = self.episode_returns[i]
                 episode_length = self.episode_lengths[i]
-                violation_return = self.violation_returns[i]
+                violation_return = observations["violations"][i] - observations["hc"][i]
+
                 episode_info = {
                     "r": episode_return,
                     "l": episode_length,
@@ -202,7 +203,8 @@ def make_env(env_id, seed, idx, capture_video, run_name):
                 env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         env = HazardWorldMissionWrapper(env)
         env = RemoveStateDimWrapper(env)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = RecordEpisodeStatisticsV(env)
+        env = gym.wrappers.TimeLimit(env, 200)
         env.seed(seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
@@ -254,18 +256,16 @@ class Agent(nn.Module):
     def __init__(self, envs):
         super(Agent, self).__init__()
         self.network = nn.Sequential(
-            layer_init(nn.Conv2d(2, 10, 3, stride=4)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(32, 64, 4, stride=2)),
-            nn.ReLU(),
-            layer_init(nn.Conv2d(64, 64, 3, stride=1)),
-            nn.ReLU(),
+            layer_init(nn.Conv2d(2, 5, 3, stride=1)),
+            nn.Tanh(),
+            layer_init(nn.Conv2d(5, 6, 3, stride=1)),
+            nn.Tanh(),
             nn.Flatten(),
-            layer_init(nn.Linear(64 * 7 * 7, 512)),
+            layer_init(nn.Linear(54, 64)),
             nn.ReLU(),
         )
-        self.actor = layer_init(nn.Linear(512, envs.single_action_space.n), std=0.01)
-        self.critic = layer_init(nn.Linear(512, 1), std=1)
+        self.actor = layer_init(nn.Linear(64, envs.single_action_space.n), std=0.01)
+        self.critic = layer_init(nn.Linear(64, 1), std=1)
 
     def get_value(self, x):
         # [batch, h, w, c]
@@ -275,6 +275,9 @@ class Agent(nn.Module):
         return self.critic(self.network(x / 255.0))
 
     def get_action_and_value(self, x, action=None):
+        # [batch, h, w, c]
+        x = torch.permute(x, (0, 3, 1, 2))
+        # [batch, c, h, w]
         hidden = self.network(x / 255.0)
         logits = self.actor(hidden)
         probs = Categorical(logits=logits)
@@ -370,7 +373,6 @@ if __name__ == "__main__":
 
         for step in range(0, args.num_steps):
             global_step += 1 * args.num_envs
-            breakpoint()
             # obs[step] = next_obs
             obs_image[step] = next_obs_image
             obs_mission[step] = next_obs_mission
@@ -449,7 +451,7 @@ if __name__ == "__main__":
         # flatten the batch
         # b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
         b_obs_image = obs_image.reshape(
-            (-1) + envs.single_observation_space["image"].shape
+            (-1,) + envs.single_observation_space["image"].shape
         )
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
@@ -533,7 +535,6 @@ if __name__ == "__main__":
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
         writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         writer.add_scalar("losses/explained_variance", explained_var, global_step)
-        print("SPS:", int(global_step / (time.time() - start_time)))
         writer.add_scalar(
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
         )
