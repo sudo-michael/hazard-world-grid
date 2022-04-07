@@ -162,8 +162,9 @@ class HazardWorldBase(MiniGridEnv):
         return self.grid.get(i, j) == None
 
     def step(self, action):
-        if not isinstance(action, int):
-            action = np.argmax(action)
+        err_msg = f"{action!r} ({type(action)}) invalid"
+        assert self.action_space.contains(action), err_msg
+
         obs, reward, _, info = super().step(action)
         done = False
 
