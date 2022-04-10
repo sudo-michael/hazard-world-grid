@@ -2,6 +2,7 @@
 # https://docs.cleanrl.dev/rl-algorithms/ppo/#ppopy
 
 import argparse
+from http.client import ImproperConnectionState
 import os
 import random
 import time
@@ -22,7 +23,7 @@ import sys
 
 sys.path.append("..")
 
-from utils import encode_mission
+from utils import encode_mission, create_constraint_mask
 
 
 def parse_args():
@@ -44,6 +45,8 @@ def parse_args():
         help="the entity (team) of wandb's project")
     parser.add_argument("--capture-video", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
         help="weather to capture videos of the agent performances (check out `videos` folder)")
+    parser.add_argument("--save-freq", type=int, default=100,
+        help="save every x policy updates")
 
     # Algorithm specific arguments
     parser.add_argument("--env-id", type=str, default="MiniGrid-HazardWorld-B-v0",
@@ -64,7 +67,7 @@ def parse_args():
         help="the discount factor gamma")
     parser.add_argument("--gae-lambda", type=float, default=0.95,
         help="the lambda for the general advantage estimation")
-    parser.add_argument("--num-minibatches", type=int, default=4,
+    parser.add_argument("--num-minibatches", type=int, default=2,
         help="the number of mini-batches")
     parser.add_argument("--update-epochs", type=int, default=4,
         help="the K epochs to update the policy")
@@ -82,8 +85,6 @@ def parse_args():
         help="the maximum norm for the gradient clipping")
     parser.add_argument("--target-kl", type=float, default=None,
         help="the target KL divergence threshold")
-    parser.add_argument("--use-cf", type=lambda x: bool(strtobool(x)), default=False, nargs="?", const=True,
-        help="")
     args = parser.parse_args()
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
@@ -101,6 +102,7 @@ class HazardWorldMissionWrapper(gym.core.ObservationWrapper):
         super().__init__(env)
 
     def observation(self, obs):
+        # print(f"{obs['mission']=}")
         enc_mission = encode_mission(obs["mission"])
         obs["mission"] = enc_mission
         return obs
@@ -198,14 +200,14 @@ class RecordEpisodeStatisticsV(gym.Wrapper):
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
-        env = gym.make(env_id, size=9)
+        env = gym.make(env_id, size=13)
         if args.capture_video:
             if idx == 0:
                 env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         env = HazardWorldMissionWrapper(env)
+        env = gym.wrappers.TimeLimit(env, 200)
         env = RemoveStateDimWrapper(env)
         env = RecordEpisodeStatisticsV(env)
-        env = gym.wrappers.TimeLimit(env, 200)
         env.seed(seed)
         env.action_space.seed(seed)
         env.observation_space.seed(seed)
@@ -253,76 +255,6 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 #         return action, probs.log_prob(action), probs.entropy(), self.critic(x)
 
 
-class AgentCF(nn.Module):
-    def __init__(self, envs):
-        super(AgentCF, self).__init__()
-        self.network = nn.Sequential(
-            layer_init(nn.Conv2d(2, 5, 3, stride=1)),
-            nn.Tanh(),
-            layer_init(nn.Conv2d(5, 6, 3, stride=1)),
-            nn.Tanh(),
-            nn.Flatten(),
-            layer_init(nn.Linear(54, 30)),
-            nn.Tanh(),
-            layer_init(nn.Linear(30, 15)),
-            nn.Tanh(),
-            layer_init(nn.Linear(15, 5)),
-        )
-
-        self.C = nn.Embedding(35, 5)
-        self.lstm = nn.LSTM(input_size=5, hidden_size=5)
-
-        self.actor = nn.Sequential(
-            layer_init(nn.Linear(10, 5)),
-            nn.Tanh(),
-            layer_init(nn.Linear(5, 5)),
-            nn.Tanh(),
-            layer_init(nn.Linear(5, envs.single_action_space.n), std=0.01),
-        )
-
-        self.critic = nn.Sequential(
-            layer_init(nn.Linear(10, 5)),
-            nn.Tanh(),
-            layer_init(nn.Linear(5, 5)),
-            nn.Tanh(),
-            layer_init(nn.Linear(5, 1), std=1),
-        )
-
-    def get_value(self, x, lan):
-        # [batch, h, w, c]
-        x = torch.permute(x, (0, 3, 1, 2))
-        # [batch, c, h, w]
-        hidden = self.network(x / 255.0)
-
-        lan = self.C(lan)
-        lan = lan.transpose(0, 1)  # (words, batch_size, embedding_size)
-        _, (h_n, _) = self.lstm(lan)
-
-        hidden = torch.cat((hidden, h_n[-1]), dim=1)
-
-        return self.critic(hidden)
-
-    def get_action_and_value(self, x, action=None, lan=None):
-        # [batch, h, w, c]
-        x = torch.permute(x, (0, 3, 1, 2))
-        # [batch, c, h, w]
-        hidden = self.network(x / 255.0)
-
-        lan = self.C(lan)
-        lan = lan.transpose(0, 1)  # (words, batch_size, embedding_size)
-        _, (h_n, _) = self.lstm(lan)
-
-        hidden = torch.cat((hidden, h_n[-1]), dim=1)
-
-        logits = self.actor(hidden)
-        probs = Categorical(logits=logits)
-
-        if action is None:
-            # print(logits)
-            action = probs.sample()
-        return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
-
-
 class Agent(nn.Module):
     def __init__(self, envs):
         super(Agent, self).__init__()
@@ -345,15 +277,19 @@ class Agent(nn.Module):
 
         return self.critic(self.network(x / 255.0))
 
-    def get_action_and_value(self, x, action=None):
+    def get_action_and_value(self, x, action=None, invalid_action_masks=None):
         # [batch, h, w, c]
         x = torch.permute(x, (0, 3, 1, 2))
         # [batch, c, h, w]
         hidden = self.network(x / 255.0)
         logits = self.actor(hidden)
-        probs = Categorical(logits=logits)
+
+        adjusted_logits = torch.where(
+            invalid_action_masks, logits, torch.tensor(-1e8, device=device)
+        )
+        # probs = Categorical(logits=logits)
+        probs = Categorical(logits=adjusted_logits)
         if action is None:
-            # print(logits)
             action = probs.sample()
         return action, probs.log_prob(action), probs.entropy(), self.critic(hidden)
 
@@ -388,6 +324,35 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
+    def get_invalid_action_masks(envs, obs_image):
+        invalid_action_masks = torch.zeros(
+            (len(envs.envs), 4), dtype=torch.bool, device=device
+        )
+
+        for i, env in enumerate(envs.envs):
+            cmm, idx_to_avoid = create_constraint_mask(obs_image[i], env)
+
+            # print(cmm)
+            # print(obs['image'][i][:, :, 0])
+
+            obj_in_front = obs_image[i][3, -2, 0]
+            # print(obj_in_front)
+            invalid_action_mask = torch.tensor([1.0, 1.0, 1.0, 1.0,], device=device)
+
+            # only pick up items if it's infront
+            if obj_in_front not in [5, 6, 7]:
+                invalid_action_mask[3] = 0.0
+
+            # don't violate constraint, 2 == wall
+            if obj_in_front in [2, idx_to_avoid]:
+                invalid_action_mask[2] = 0.0
+
+            # target_logits = torch.tensor([1., 1., 1., 1.,] , requires_grad=True)
+            invalid_action_mask = invalid_action_mask.type(torch.BoolTensor)
+            invalid_action_masks[i] = invalid_action_mask
+
+        return invalid_action_masks
+
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [
@@ -399,11 +364,7 @@ if __name__ == "__main__":
         envs.single_action_space, gym.spaces.Discrete
     ), "only discrete action space is supported"
 
-    if args.use_cf:
-        agent = AgentCF(envs).to(device)
-    else:
-        agent = Agent(envs).to(device)
-
+    agent = Agent(envs).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -424,6 +385,9 @@ if __name__ == "__main__":
     actions = torch.zeros(
         (args.num_steps, args.num_envs) + envs.single_action_space.shape
     ).to(device)
+    invalid_action_masks = torch.zeros(
+        (args.num_steps, args.num_envs) + (4,), dtype=torch.bool,
+    ).to(device)
     logprobs = torch.zeros((args.num_steps, args.num_envs)).to(device)
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
@@ -434,12 +398,13 @@ if __name__ == "__main__":
     start_time = time.time()
     next_obs = envs.reset()
     next_obs_image = torch.Tensor(next_obs["image"]).to(device)
-    next_obs_mission = torch.Tensor(next_obs["mission"]).long().to(device)
+    next_obs_mission = torch.Tensor(next_obs["mission"]).to(device)
     next_obs_hc = torch.Tensor(next_obs["hc"]).to(device)
     next_obs_violations = torch.Tensor(next_obs["violations"]).to(device)
     next_done = torch.zeros(args.num_envs).to(device)
     num_updates = args.total_timesteps // args.batch_size
 
+    print(f"{num_updates=}")
     for update in range(1, num_updates + 1):
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -458,20 +423,28 @@ if __name__ == "__main__":
 
             # ALGO LOGIC: action logic
             with torch.no_grad():
-                if args.use_cf:
-                    action, logprob, _, value = agent.get_action_and_value(
-                        next_obs_image, lan=next_obs_mission.long()
-                    )
-                else:
-                    action, logprob, _, value = agent.get_action_and_value(
-                        next_obs_image
-                    )
+                invalid_action_masks[step] = get_invalid_action_masks(
+                    envs, next_obs_image
+                )
+                action, logprob, _, value = agent.get_action_and_value(
+                    next_obs_image, invalid_action_masks=invalid_action_masks[step]
+                )
                 values[step] = value.flatten()
+            # if action.item() == 2:
+            #     import code; code.interact(local=locals())
             actions[step] = action
             logprobs[step] = logprob
 
             # TRY NOT TO MODIFY: execute the game and log data.
             next_obs, reward, done, info = envs.step(action.cpu().numpy())
+            # # next_obs, reward, done, info = envs.step([2])
+            # print(f'{action.item()=}')
+            # print(f'{envs.envs[0].agent_dir}')
+            # print(f'{envs.envs[0].agent_pos}')
+            # import time
+            # time.sleep(1)
+            # envs.envs[0].render()
+            # envs.render()
             rewards[step] = torch.tensor(reward).to(device).view(-1)
 
             next_obs_image = torch.Tensor(next_obs["image"]).to(device)
@@ -483,7 +456,7 @@ if __name__ == "__main__":
             for item in info:
                 if "episode" in item.keys():
                     print(
-                        f"global_step={global_step}, episodic_return={item['episode']['r']}"
+                        f"global_step={global_step}, episodic_return={item['episode']['r']}, violations={item['episode']['v']}"
                     )
                     writer.add_scalar(
                         "charts/episodic_return", item["episode"]["r"], global_step
@@ -498,12 +471,7 @@ if __name__ == "__main__":
 
         # bootstrap value if not done
         with torch.no_grad():
-            if args.use_cf:
-                next_value = agent.get_value(
-                    next_obs_image, next_obs_mission.long()
-                ).reshape(1, -1)
-            else:
-                next_value = agent.get_value(next_obs_image).reshape(1, -1)
+            next_value = agent.get_value(next_obs_image).reshape(1, -1)
             if args.gae:
                 advantages = torch.zeros_like(rewards).to(device)
                 lastgaelam = 0
@@ -541,14 +509,12 @@ if __name__ == "__main__":
         b_obs_image = obs_image.reshape(
             (-1,) + envs.single_observation_space["image"].shape
         )
-        b_obs_mission = obs_mission.reshape(
-            (-1,) + envs.single_observation_space["mission"].shape
-        )
         b_logprobs = logprobs.reshape(-1)
         b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+        b_invalid_action_masks = invalid_action_masks.reshape((-1,) + (4,))
 
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
@@ -559,17 +525,11 @@ if __name__ == "__main__":
                 end = start + args.minibatch_size
                 mb_inds = b_inds[start:end]
 
-                if args.use_cf:
-                    _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                        b_obs_image[mb_inds],
-                        b_actions.long()[mb_inds],
-                        b_obs_mission.long()[mb_inds],
-                    )
-                else:
-                    _, newlogprob, entropy, newvalue = agent.get_action_and_value(
-                        b_obs_image[mb_inds], b_actions.long()[mb_inds]
-                    )
-
+                _, newlogprob, entropy, newvalue = agent.get_action_and_value(
+                    b_obs_image[mb_inds],
+                    action=b_actions.long()[mb_inds],
+                    invalid_action_masks=b_invalid_action_masks[mb_inds],
+                )
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
@@ -638,5 +598,14 @@ if __name__ == "__main__":
             "charts/SPS", int(global_step / (time.time() - start_time)), global_step
         )
 
+        if (update - 1) % args.save_freq == 0 or update == num_updates:
+            t_dir = f"runs/{run_name}/models"
+            if not os.path.exists(t_dir):
+                os.makedirs(t_dir)
+            torch.save(agent.state_dict(), f"{t_dir}/agent.pt")
+            torch.save(agent.state_dict(), f"{t_dir}/{global_step}.pt")
+
     envs.close()
     writer.close()
+
+    writer = SummaryWriter(f"runs/{run_name}")
